@@ -65,6 +65,12 @@ const propTypes = {
     /** Indicates whether the app is loading initial data */
     isLoadingReportData: PropTypes.bool,
 
+    /** Whether we should show the back button on the header */
+    shouldShowLink: PropTypes.bool,
+
+    /** Link message below the subtitle */
+    link: PropTypes.string,
+
     ...withLocalizePropTypes,
 };
 
@@ -73,6 +79,8 @@ const defaultProps = {
     personalDetails: {},
     loginList: {},
     isLoadingReportData: true,
+    shouldShowLink: true,
+    link: 'Back to homepage',
 };
 
 /**
@@ -225,6 +233,8 @@ function ProfilePage(props) {
                         iconWidth={variables.modalTopIconWidth}
                         iconHeight={variables.modalTopIconHeight}
                         title={props.translate('notFound.notHere')}
+                        shouldShowLink={props.shouldShowLink}
+                        link={props.link}
                     />
                 )}
             </View>
