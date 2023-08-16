@@ -1,249 +1,205 @@
-import React, {PureComponent} from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import {View, PanResponder} from 'react-native';
+import { View, PanResponder } from 'react-native';
 import ImageZoom from 'react-native-image-pan-zoom';
 import _ from 'underscore';
 import styles from '../../styles/styles';
 import variables from '../../styles/variables';
-import withWindowDimensions, {windowDimensionsPropTypes} from '../withWindowDimensions';
+import withWindowDimensions, { windowDimensionsPropTypes } from '../withWindowDimensions';
 import FullscreenLoadingIndicator from '../FullscreenLoadingIndicator';
 import Image from '../Image';
 
 /**
- * On the native layer, we use a image library to handle zoom functionality
+ * Renders an ImageView component that displays an image with zoom and pan functionality.
+ *
+ * @param {object} props - The properties passed to the component.
+ * @param {string} props.url - The URL of the image to be displayed.
+ * @param {number} props.windowWidth - The width of the window.
+ * @param {number} props.windowHeight - The height of the window.
+ * @param {boolean} props.isAuthTokenRequired - Indicates if an authentication token is required to access the image.
+ * @param {function} props.onPress - The function to be called when the image is clicked.
+ * @param {function} props.onScaleChanged - The function to be called when the image scale is changed.
+ * @param {object} style - The style object for the component.
+ * @return {ReactElement} The rendered ImageView component.
  */
-const propTypes = {
-    /** Whether source url requires authentication */
-    isAuthTokenRequired: PropTypes.bool,
+function ImageView(props) {
+    const [isLoading, setIsLoading] = useState(true);
+    const [imageWidth, setImageWidth] = useState(0);
+    const [imageHeight, setImageHeight] = useState(0);
+    const [interactionPromise] = useState(undefined);
+    const [containerHeight, setContainerHeight] = useState(undefined);
 
-    /** URL to full-sized image */
-    url: PropTypes.string.isRequired,
+    const doubleClickInterval = 175;
+    const imageZoomScale = useRef(1);
+    const lastClickTime = useRef(0);
+    const amountOfTouches = useRef(0);
+    const zoom = useRef(null);
 
-    /** Handles scale changed event in image zoom component. Used on native only */
-    onScaleChanged: PropTypes.func.isRequired,
-
-    /** Function for handle on press */
-    onPress: PropTypes.func,
-
-    ...windowDimensionsPropTypes,
-};
-
-const defaultProps = {
-    isAuthTokenRequired: false,
-    onPress: () => {},
-};
-
-class ImageView extends PureComponent {
-    constructor(props) {
-        super(props);
-
-        this.state = {
-            isLoading: true,
-            imageWidth: 0,
-            imageHeight: 0,
-            interactionPromise: undefined,
-        };
-
-        // Use the default double click interval from the ImageZoom library
-        // https://github.com/ascoders/react-native-image-zoom/blob/master/src/image-zoom/image-zoom.type.ts#L79
-        this.doubleClickInterval = 175;
-        this.imageZoomScale = 1;
-        this.lastClickTime = 0;
-        this.amountOfTouches = 0;
-
-        // PanResponder used to capture how many touches are active on the attachment image
-        this.panResponder = PanResponder.create({
-            onStartShouldSetPanResponder: this.updatePanResponderTouches.bind(this),
-        });
-
-        this.configureImageZoom = this.configureImageZoom.bind(this);
-        this.imageLoadingStart = this.imageLoadingStart.bind(this);
-    }
-
-    componentDidUpdate(prevProps) {
-        if (this.props.url === prevProps.url) {
-            return;
-        }
-
-        this.imageLoadingStart();
-
-        if (this.interactionPromise) {
-            this.state.interactionPromise.cancel();
-        }
-    }
-
-    componentWillUnmount() {
-        if (!this.state.interactionPromise) {
-            return;
-        }
-        this.state.interactionPromise.cancel();
-    }
-
-    /**
-     * Updates the amount of active touches on the PanResponder on our ImageZoom overlay View
-     *
-     * @param {Event} e
-     * @param {GestureState} gestureState
-     * @returns {Boolean}
-     */
-    updatePanResponderTouches(e, gestureState) {
+    const updatePanResponderTouches = (e, gestureState) => {
         if (_.isNumber(gestureState.numberActiveTouches)) {
-            this.amountOfTouches = gestureState.numberActiveTouches;
+            amountOfTouches.current = gestureState.numberActiveTouches;
         }
 
-        // We don't need to set the panResponder since all we care about is checking the gestureState, so return false
         return false;
-    }
+    };
 
-    /**
-     * The `ImageZoom` component requires image dimensions which
-     * are calculated here from the natural image dimensions produced by
-     * the `onLoad` event
-     *
-     * @param {Object} nativeEvent
-     */
-    configureImageZoom({nativeEvent}) {
-        let imageWidth = nativeEvent.width;
-        let imageHeight = nativeEvent.height;
-        const containerWidth = Math.round(this.props.windowWidth);
-        const containerHeight = Math.round(this.state.containerHeight ? this.state.containerHeight : this.props.windowHeight);
+    const panResponder = PanResponder.create({
+        onStartShouldSetPanResponder: updatePanResponderTouches,
+    });
 
-        const aspectRatio = Math.min(containerHeight / imageHeight, containerWidth / imageWidth);
-
-        imageHeight *= aspectRatio;
-        imageWidth *= aspectRatio;
-
-        // Resize the image to max dimensions possible on the Native platforms to prevent crashes on Android. To keep the same behavior, apply to IOS as well.
-        const maxDimensionsScale = 11;
-        imageWidth = Math.min(imageWidth, containerWidth * maxDimensionsScale);
-        imageHeight = Math.min(imageHeight, containerHeight * maxDimensionsScale);
-        this.setState({imageHeight, imageWidth, isLoading: false});
-    }
-
-    /**
-     * When the url changes and the image must load again,
-     * this resets the zoom to ensure the next image loads with the correct dimensions.
-     */
-    resetImageZoom() {
-        if (this.imageZoomScale !== 1) {
-            this.imageZoomScale = 1;
+    const resetImageZoom = useCallback(() => {
+        if (imageZoomScale.current !== 1) {
+            imageZoomScale.current = 1;
         }
-
-        if (this.zoom) {
-            this.zoom.centerOn({
+    
+        if (zoom.current) {
+            zoom.current.centerOn({
                 x: 0,
                 y: 0,
                 scale: 1,
                 duration: 0,
             });
         }
-    }
+    }, []);
 
-    imageLoadingStart() {
-        if (this.state.isLoading) {
+    const imageLoadingStart = useCallback(() => {
+        if (isLoading) {
             return;
         }
-        this.resetImageZoom();
-        this.setState({imageHeight: 0, imageWidth: 0, isLoading: true});
-    }
+        resetImageZoom();
+        setImageHeight(0);
+        setImageWidth(0);
+        setIsLoading(true);
+    }, [isLoading, resetImageZoom]);
 
-    render() {
-        // Default windowHeight accounts for the modal header height
-        const windowHeight = this.props.windowHeight - variables.contentHeaderHeight;
-        const hasImageDimensions = this.state.imageWidth !== 0 && this.state.imageHeight !== 0;
-        const shouldShowLoadingIndicator = this.state.isLoading || !hasImageDimensions;
+    useEffect(() => {
+        if (props.url) {
+            imageLoadingStart();
+        }
 
-        // Zoom view should be loaded only after measuring actual image dimensions, otherwise it causes blurred images on Android
-        return (
-            <View
-                style={[styles.w100, styles.h100, styles.alignItemsCenter, styles.justifyContentCenter, styles.overflowHidden]}
-                onLayout={(event) => {
-                    const layout = event.nativeEvent.layout;
-                    this.setState({
-                        containerHeight: layout.height,
-                    });
-                }}
-            >
-                {Boolean(this.state.containerHeight) && (
-                    <ImageZoom
-                        ref={(el) => (this.zoom = el)}
-                        onClick={() => this.props.onPress()}
-                        cropWidth={this.props.windowWidth}
-                        cropHeight={windowHeight}
-                        imageWidth={this.state.imageWidth}
-                        imageHeight={this.state.imageHeight}
-                        onStartShouldSetPanResponder={() => {
-                            const isDoubleClick = new Date().getTime() - this.lastClickTime <= this.doubleClickInterval;
-                            this.lastClickTime = new Date().getTime();
+        return () => {
+            if (!interactionPromise) {
+                return;
+            }
+            interactionPromise.cancel();
+        };
+    }, [props.url, imageLoadingStart, interactionPromise]);
 
-                            // Let ImageZoom handle the event if the tap is more than one touchPoint or if we are zoomed in
-                            if (this.amountOfTouches === 2 || this.imageZoomScale !== 1) {
-                                return true;
-                            }
+    /**
+     * Configures the image zoom based on the provided native event.
+     *
+     * @param {object} nativeEvent - The native event object containing the width and height of the image.
+     */
+    const configureImageZoom = ({ nativeEvent }) => {
+        let imgWidth = nativeEvent.width;
+        let imgHeight = nativeEvent.height;
+        const containerWidth = Math.round(props.windowWidth);
+        const ctnrHeight = Math.round(containerHeight || props.windowHeight);
 
-                            // When we have a double click and the zoom scale is 1 then programmatically zoom the image
-                            // but let the tap fall through to the parent so we can register a swipe down to dismiss
-                            if (isDoubleClick) {
-                                this.zoom.centerOn({
-                                    x: 0,
-                                    y: 0,
-                                    scale: 2,
-                                    duration: 100,
-                                });
+        const aspectRatio = Math.min(ctnrHeight / imgHeight, containerWidth / imgWidth);
 
-                                // onMove will be called after the zoom animation.
-                                // So it's possible to zoom and swipe and stuck in between the images.
-                                // Sending scale just when we actually trigger the animation makes this nearly impossible.
-                                // you should be really fast to catch in between state updates.
-                                // And this lucky case will be fixed by migration to UI thread only code
-                                // with gesture handler and reanimated.
-                                this.props.onScaleChanged(2);
-                            }
+        imgHeight *= aspectRatio;
+        imgWidth *= aspectRatio;
 
-                            // We must be either swiping down or double tapping since we are at zoom scale 1
-                            return false;
-                        }}
-                        onMove={({scale}) => {
-                            this.props.onScaleChanged(scale);
-                            this.imageZoomScale = scale;
-                        }}
-                    >
-                        <Image
-                            style={[
-                                styles.w100,
-                                styles.h100,
-                                this.props.style,
+        const maxDimensionsScale = 11;
+        imgWidth = Math.min(imageWidth, containerWidth * maxDimensionsScale);
+        imgHeight = Math.min(imageHeight, containerHeight * maxDimensionsScale);
+        setImageHeight(imgHeight);
+        setImageWidth(imgWidth);
+        setIsLoading(false);
+    };
 
-                                // Hide image while loading so ImageZoom can get the image
-                                // size before presenting - preventing visual glitches or shift
-                                // due to ImageZoom
-                                shouldShowLoadingIndicator ? styles.opacity0 : styles.opacity1,
-                            ]}
-                            source={{uri: this.props.url}}
-                            isAuthTokenRequired={this.props.isAuthTokenRequired}
-                            resizeMode={Image.resizeMode.contain}
-                            onLoadStart={this.imageLoadingStart}
-                            onLoad={this.configureImageZoom}
-                        />
-                        {/**
-                         Create an invisible view on top of the image so we can capture and set the amount of touches before
-                        the ImageZoom's PanResponder does. Children will be triggered first, so this needs to be inside the
-                        ImageZoom to work
-                        */}
-                        <View
-                            /* eslint-disable-next-line react/jsx-props-no-spreading */
-                            {...this.panResponder.panHandlers}
-                            style={[styles.w100, styles.h100, styles.invisible]}
-                        />
-                    </ImageZoom>
-                )}
-                {shouldShowLoadingIndicator && <FullscreenLoadingIndicator style={[styles.opacity1, styles.bgTransparent]} />}
-            </View>
-        );
-    }
-}
+    const windowHeight = props.windowHeight - variables.contentHeaderHeight;
+    const hasImageDimensions = imageWidth !== 0 && imageHeight !== 0;
+    const shouldShowLoadingIndicator = isLoading || !hasImageDimensions;
 
-ImageView.propTypes = propTypes;
-ImageView.defaultProps = defaultProps;
+    return (
+        <View
+            style={[styles.w100, styles.h100, styles.alignItemsCenter, styles.justifyContentCenter, styles.overflowHidden]}
+            onLayout={(event) => {
+                const layout = event.nativeEvent.layout;
+                setContainerHeight(layout.height);
+            }}
+        >
+            {Boolean(containerHeight) && (
+                <ImageZoom
+                    ref={zoom}
+                    onClick={() => props.onPress()}
+                    cropWidth={props.windowWidth}
+                    cropHeight={windowHeight}
+                    imageWidth={imageWidth}
+                    imageHeight={imageHeight}
+                    onStartShouldSetPanResponder={() => {
+                        const isDoubleClick = new Date().getTime() - lastClickTime.current <= doubleClickInterval;
+                        lastClickTime.current = new Date().getTime();
+
+                        if (amountOfTouches.current === 2 || imageZoomScale.current !== 1) {
+                            return true;
+                        }
+
+                        if (isDoubleClick) {
+                            zoom.current.centerOn({
+                                x: 0,
+                                y: 0,
+                                scale: 2,
+                                duration: 100,
+                            });
+
+                            props.onScaleChanged(2);
+                        }
+
+                        return false;
+                    }}
+                    onMove={({ scale }) => {
+                        props.onScaleChanged(scale);
+                        imageZoomScale.current = scale;
+                    }}
+                >
+                    <Image
+                        style={[
+                            styles.w100,
+                            styles.h100,
+                            props.style,
+                            shouldShowLoadingIndicator ? styles.opacity0 : styles.opacity1,
+                        ]}
+                        source={{ uri: props.url }}
+                        isAuthTokenRequired={props.isAuthTokenRequired}
+                        resizeMode={Image.resizeMode.contain}
+                        onLoadStart={imageLoadingStart}
+                        onLoad={configureImageZoom}
+                    />
+                    <View
+                        onStartShouldSetPanResponder={panResponder.panHandlers.onStartShouldSetPanResponder}
+                        onMoveShouldSetPanResponder={panResponder.panHandlers.onMoveShouldSetPanResponder}
+                        onStartShouldSetPanResponderCapture={panResponder.panHandlers.onStartShouldSetPanResponderCapture}
+                        onMoveShouldSetPanResponderCapture={panResponder.panHandlers.onMoveShouldSetPanResponderCapture}
+                        onPanResponderGrant={panResponder.panHandlers.onPanResponderGrant}
+                        onPanResponderMove={panResponder.panHandlers.onPanResponderMove}
+                        onPanResponderRelease={panResponder.panHandlers.onPanResponderRelease}
+                        onPanResponderTerminate={panResponder.panHandlers.onPanResponderTerminate}
+                        onPanResponderTerminationRequest={panResponder.panHandlers.onPanResponderTerminationRequest}
+                        style={[styles.w100, styles.h100, styles.invisible]}
+                    />
+                </ImageZoom>
+            )}
+            {shouldShowLoadingIndicator && <FullscreenLoadingIndicator style={[styles.opacity1, styles.bgTransparent]} />}
+        </View>
+    );
+};
+
+ImageView.propTypes = {
+    isAuthTokenRequired: PropTypes.bool,
+    url: PropTypes.string.isRequired,
+    onScaleChanged: PropTypes.func.isRequired,
+    onPress: PropTypes.func,
+    ...windowDimensionsPropTypes,
+};
+
+ImageView.defaultProps = {
+    isAuthTokenRequired: false,
+    onPress: () => {},
+};
+
+ImageView.displayName = 'ImageView';
 
 export default withWindowDimensions(ImageView);
