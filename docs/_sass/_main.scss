@@ -262,12 +262,14 @@ button {
 
     .lhn-header {
         padding: 24px;
+        display: flex;
+        justify-content: space-between;
+
         @include breakpoint($breakpoint-tablet) {
             padding: 44px;
         }
 
         #header-button {
-            position: absolute;
             display: block;
             @include breakpoint($breakpoint-tablet) {
                 display: none;
