@@ -1,5 +1,5 @@
 import React, {Component} from 'react';
-import {View} from 'react-native';
+import {View, ScrollView} from 'react-native';
 import PDF from 'react-native-pdf';
 import KeyboardAvoidingView from '../KeyboardAvoidingView';
 import styles from '../../styles/styles';
@@ -147,18 +147,20 @@ class PDFView extends Component {
                     </View>
                 )}
                 {this.state.shouldAttemptPDFLoad && (
-                    <PDF
-                        fitPolicy={0}
-                        trustAllCerts={false}
-                        renderActivityIndicator={() => <FullScreenLoadingIndicator />}
-                        source={{uri: this.props.sourceURL}}
-                        style={pdfStyles}
-                        onError={this.handleFailureToLoadPDF}
-                        password={this.state.password}
-                        onLoadComplete={this.finishPDFLoad}
-                        onPageSingleTap={this.props.onPress}
-                        onScaleChanged={this.props.onScaleChanged}
-                    />
+                    <ScrollView contentContainerStyle={[styles.flex1]}>
+                        <PDF
+                            fitPolicy={0}
+                            trustAllCerts={false}
+                            renderActivityIndicator={() => <FullScreenLoadingIndicator />}
+                            source={{uri: this.props.sourceURL}}
+                            style={pdfStyles}
+                            onError={this.handleFailureToLoadPDF}
+                            password={this.state.password}
+                            onLoadComplete={this.finishPDFLoad}
+                            onPageSingleTap={this.props.onPress}
+                            onScaleChanged={this.props.onScaleChanged}
+                        />
+                    </ScrollView>
                 )}
                 {this.state.shouldRequestPassword && (
                     <KeyboardAvoidingView style={styles.flex1}>
